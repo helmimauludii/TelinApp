@@ -7,7 +7,7 @@ import re
 st.set_page_config(layout="wide", page_title="Dashboard Volume Kuartalan")
 
 # --- Judul Dashboard ---
-st.title("📊 Dashboard Analisis Volume SID (Kuartalan) dengan Tiering")
+st.title("📊 Dashboard Analisis Volume SID (Kuartalan)")
 st.markdown("Unggah file ringkasan kuartalan Anda untuk melihat pola volume SID dari waktu ke waktu.")
 
 # --- 1. PENGUNGGAH FILE ---
@@ -30,20 +30,16 @@ def load_and_process_data(file):
     # Urutkan SID berdasarkan Grand Total untuk menentukan peringkat
     df_sorted = df.sort_values('Grand Total', ascending=False).reset_index(drop=True)
 
-    # --- PERUBAHAN 1: Ukuran tier ditetapkan menjadi 10 ---
     sids_per_tier = 10
 
-    # Fungsi untuk menetapkan Tier berdasarkan peringkat
     def assign_tier(index):
         tier_number = (index // sids_per_tier) + 1
         start_rank = (tier_number - 1) * sids_per_tier + 1
         end_rank = tier_number * sids_per_tier
         return f"Tier {tier_number} (Top {start_rank}-{end_rank})"
 
-    # Buat kolom Tier di dataframe yang sudah diurutkan
     df_sorted['Tier'] = df_sorted.index.to_series().apply(assign_tier)
 
-    # --- Unpivot Data ---
     id_vars = ['Sender ID', 'Tier']
     value_vars = [col for col in df_sorted.columns if col.startswith('Q') and 'Grand Total' not in col]
     
@@ -64,22 +60,30 @@ except Exception as e:
 # --- 3. SIDEBAR UNTUK FILTER ---
 st.sidebar.header("⚙️ Filter Data")
 
-# --- PERUBAHAN 2: Memperbaiki urutan tier ---
-# Ambil daftar tier unik dari data
-tier_options_unsorted = df_processed['Tier'].unique()
-
-# Fungsi untuk mengekstrak angka dari nama tier
-def extract_tier_number(tier_string):
-    match = re.search(r'Tier (\d+)', tier_string)
-    return int(match.group(1)) if match else 0
-
-# Urutkan daftar tier berdasarkan angka yang diekstrak
-tier_options_sorted = sorted(tier_options_unsorted, key=extract_tier_number)
-
-selected_tier = st.sidebar.selectbox(
-    label="Pilih Tier Sender ID untuk ditampilkan:",
-    options=tier_options_sorted
+# --- PERUBAHAN UTAMA: Tambahkan pilihan mode analisis ---
+analysis_mode = st.sidebar.radio(
+    "Pilih Mode Analisis:",
+    ("Analisis per Tier", "Cari SID Spesifik")
 )
+
+# Tampilkan filter yang relevan berdasarkan mode yang dipilih
+if analysis_mode == "Analisis per Tier":
+    tier_options_unsorted = df_processed['Tier'].unique()
+    def extract_tier_number(tier_string):
+        match = re.search(r'Tier (\d+)', tier_string)
+        return int(match.group(1)) if match else 0
+    tier_options_sorted = sorted(tier_options_unsorted, key=extract_tier_number)
+    
+    selected_tier = st.sidebar.selectbox(
+        label="Pilih Tier Sender ID untuk ditampilkan:",
+        options=tier_options_sorted
+    )
+else: # Mode "Cari SID Spesifik"
+    all_sids = sorted(df_processed['Sender ID'].unique())
+    selected_sid = st.sidebar.selectbox(
+        "Ketik atau pilih Sender ID:",
+        options=all_sids
+    )
 # --- AKHIR PERUBAHAN ---
 
 st.sidebar.markdown("---")
@@ -90,34 +94,39 @@ show_button = st.sidebar.button("Tampilkan Visualisasi", type="primary")
 st.header("📈 Pola Volume per Kuartal")
 
 if show_button:
-    df_final = df_processed[df_processed['Tier'] == selected_tier]
-    
-    if df_final.empty:
-        st.warning(f"Tidak ada data untuk {selected_tier}.")
-        st.stop()
+    # --- PERUBAHAN UTAMA: Logika visualisasi berdasarkan mode ---
+    if analysis_mode == "Analisis per Tier":
+        df_final = df_processed[df_processed['Tier'] == selected_tier]
+        
+        if df_final.empty:
+            st.warning(f"Tidak ada data untuk {selected_tier}.")
+        else:
+            st.subheader(f"Perubahan Volume dari Sender ID di {selected_tier}")
+            fig = px.line(df_final, x='Kuartal', y='Volume', color='Sender ID',
+                          title=f'Pola Volume SID per Kuartal untuk {selected_tier}',
+                          labels={'Kuartal': 'Kuartal', 'Volume': 'Total Volume Pesan'},
+                          markers=True)
+            fig.update_layout(xaxis={'categoryorder':'category ascending'})
+            st.plotly_chart(fig, use_container_width=True)
+            with st.expander("Lihat Data yang Diproses"):
+                st.dataframe(df_final)
 
-    st.subheader(f"Perubahan Volume dari Sender ID di {selected_tier}")
-    fig = px.line(
-        df_final,
-        x='Kuartal',
-        y='Volume',
-        color='Sender ID',
-        title=f'Perubahan Pola Volume SID per Kuartal untuk {selected_tier}',
-        labels={'Kuartal': 'Kuartal', 'Volume': 'Total Volume Pesan'},
-        markers=True
-    )
-    
-    fig.update_layout(
-        xaxis_title="Kuartal",
-        yaxis_title="Total Volume Pesan",
-        legend_title="Sender ID",
-        xaxis={'categoryorder':'category ascending'}
-    )
-    fig.update_traces(marker=dict(size=8))
+    else: # Mode "Cari SID Spesifik"
+        df_final = df_processed[df_processed['Sender ID'] == selected_sid]
 
-    st.plotly_chart(fig, use_container_width=True)
+        if df_final.empty:
+            st.warning(f"Tidak ada data untuk {selected_sid}.")
+        else:
+            st.subheader(f"Perubahan Volume untuk Sender ID: {selected_sid}")
+            fig = px.line(df_final, x='Kuartal', y='Volume',
+                          title=f'Pola Volume Kuartalan untuk {selected_sid}',
+                          labels={'Kuartal': 'Kuartal', 'Volume': 'Total Volume Pesan'},
+                          markers=True)
+            fig.update_traces(marker=dict(size=10), line=dict(width=4))
+            fig.update_layout(xaxis={'categoryorder':'category ascending'})
+            st.plotly_chart(fig, use_container_width=True)
+            with st.expander("Lihat Data yang Diproses"):
+                st.dataframe(df_final)
 
-    with st.expander("Lihat Data yang Diproses untuk Tier Ini"):
-        st.dataframe(df_final)
 else:
     st.info("Atur filter di samping dan klik **'Tampilkan Visualisasi'**.")
