@@ -60,13 +60,11 @@ except Exception as e:
 # --- 3. SIDEBAR UNTUK FILTER ---
 st.sidebar.header("⚙️ Filter Data")
 
-# --- PERUBAHAN UTAMA: Tambahkan pilihan mode analisis ---
 analysis_mode = st.sidebar.radio(
     "Pilih Mode Analisis:",
     ("Analisis per Tier", "Cari SID Spesifik")
 )
 
-# Tampilkan filter yang relevan berdasarkan mode yang dipilih
 if analysis_mode == "Analisis per Tier":
     tier_options_unsorted = df_processed['Tier'].unique()
     def extract_tier_number(tier_string):
@@ -75,16 +73,18 @@ if analysis_mode == "Analisis per Tier":
     tier_options_sorted = sorted(tier_options_unsorted, key=extract_tier_number)
     
     selected_tier = st.sidebar.selectbox(
-        label="Pilih Tier Sender ID untuk ditampilkan:",
+        label="Pilih Tier Sender ID:",
         options=tier_options_sorted
     )
 else: # Mode "Cari SID Spesifik"
     all_sids = sorted(df_processed['Sender ID'].unique())
-    selected_sid = st.sidebar.selectbox(
-        "Ketik atau pilih Sender ID:",
-        options=all_sids
+    # --- PERUBAHAN UTAMA: Ganti selectbox menjadi multiselect ---
+    selected_sids = st.sidebar.multiselect(
+        "Ketik atau pilih beberapa Sender ID:",
+        options=all_sids,
+        default=[] # Default kosong
     )
-# --- AKHIR PERUBAHAN ---
+    # --- AKHIR PERUBAHAN ---
 
 st.sidebar.markdown("---")
 show_button = st.sidebar.button("Tampilkan Visualisasi", type="primary")
@@ -94,7 +94,6 @@ show_button = st.sidebar.button("Tampilkan Visualisasi", type="primary")
 st.header("📈 Pola Volume per Kuartal")
 
 if show_button:
-    # --- PERUBAHAN UTAMA: Logika visualisasi berdasarkan mode ---
     if analysis_mode == "Analisis per Tier":
         df_final = df_processed[df_processed['Tier'] == selected_tier]
         
@@ -112,21 +111,25 @@ if show_button:
                 st.dataframe(df_final)
 
     else: # Mode "Cari SID Spesifik"
-        df_final = df_processed[df_processed['Sender ID'] == selected_sid]
-
-        if df_final.empty:
-            st.warning(f"Tidak ada data untuk {selected_sid}.")
+        # --- PERUBAHAN UTAMA: Sesuaikan logika untuk menangani multiple SIDs ---
+        if not selected_sids:
+            st.warning("Silakan pilih minimal satu Sender ID untuk ditampilkan.")
         else:
-            st.subheader(f"Perubahan Volume untuk Sender ID: {selected_sid}")
-            fig = px.line(df_final, x='Kuartal', y='Volume',
-                          title=f'Pola Volume Kuartalan untuk {selected_sid}',
-                          labels={'Kuartal': 'Kuartal', 'Volume': 'Total Volume Pesan'},
-                          markers=True)
-            fig.update_traces(marker=dict(size=10), line=dict(width=4))
-            fig.update_layout(xaxis={'categoryorder':'category ascending'})
-            st.plotly_chart(fig, use_container_width=True)
-            with st.expander("Lihat Data yang Diproses"):
-                st.dataframe(df_final)
+            df_final = df_processed[df_processed['Sender ID'].isin(selected_sids)]
+
+            if df_final.empty:
+                st.warning(f"Tidak ada data untuk SID yang dipilih.")
+            else:
+                st.subheader(f"Perbandingan Volume untuk SID yang Dipilih")
+                fig = px.line(df_final, x='Kuartal', y='Volume', color='Sender ID', # Color by SID
+                              title=f'Pola Volume Kuartalan untuk SID yang Dipilih',
+                              labels={'Kuartal': 'Kuartal', 'Volume': 'Total Volume Pesan'},
+                              markers=True)
+                fig.update_layout(xaxis={'categoryorder':'category ascending'})
+                st.plotly_chart(fig, use_container_width=True)
+                with st.expander("Lihat Data yang Diproses"):
+                    st.dataframe(df_final)
+        # --- AKHIR PERUBAHAN ---
 
 else:
     st.info("Atur filter di samping dan klik **'Tampilkan Visualisasi'**.")
